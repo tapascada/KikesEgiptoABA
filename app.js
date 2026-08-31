@@ -110,102 +110,80 @@ function setupInitialDates() {
 }
 
 // =============================================================================
-// 4. AUTENTICACIÓN GOOGLE OAUTH 2.0 (PKCE)
+// 4. AUTENTICACIÓN SEGURA GOOGLE IDENTITY SERVICES (GIS / TOKEN FLOW - SIN SECRET)
 // =============================================================================
-function generateRandomString(length = 64) {
-  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-  let text = '';
-  const values = new Uint8Array(length);
-  window.crypto.getRandomValues(values);
-  for (let i = 0; i < length; i++) {
-    text += possible[values[i] % possible.length];
-  }
-  return text;
-}
+let gisTokenClient = null;
 
-async function generateCodeChallenge(verifier) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(verifier);
-  const digest = await window.crypto.subtle.digest('SHA-256', data);
-  return btoa(String.fromCharCode(...new Uint8Array(digest)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+function initGisAuthClient() {
+  if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
+    try {
+      gisTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CONFIG.CLIENT_ID,
+        scope: CONFIG.SCOPES,
+        callback: async (tokenRes) => {
+          if (tokenRes.error) {
+            console.error('GIS Error:', tokenRes);
+            showToast('Error en autenticación: ' + tokenRes.error, 'error');
+            return;
+          }
+          if (tokenRes.access_token) {
+            AppState.accessToken = tokenRes.access_token;
+            AppState.tokenExpiry = Date.now() + (parseInt(tokenRes.expires_in || 3600, 10) * 1000) - 60000;
+            localStorage.setItem(CONFIG.STORAGE_KEYS.AUTH_TOKEN, AppState.accessToken);
+            localStorage.setItem(CONFIG.STORAGE_KEYS.AUTH_EXPIRY, AppState.tokenExpiry.toString());
+            await fetchUserInfoAndSync();
+          }
+        }
+      });
+    } catch (err) {
+      console.warn('No se pudo inicializar GIS Token Client:', err);
+    }
+  }
 }
 
 async function loginWithGoogle() {
-  try {
-    const verifier = generateRandomString(64);
-    sessionStorage.setItem('kikes_pkce_verifier', verifier);
-    const challenge = await generateCodeChallenge(verifier);
+  // Intentar abrir el popup moderno de Google Identity Services
+  if (!gisTokenClient) {
+    initGisAuthClient();
+  }
 
+  if (gisTokenClient) {
+    gisTokenClient.requestAccessToken({ prompt: 'select_account' });
+  } else {
+    // Redirección directa con Token Flow (sin secret)
     const redirectUri = window.location.origin + window.location.pathname;
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
       `client_id=${encodeURIComponent(CONFIG.CLIENT_ID)}` +
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&response_type=code` +
+      `&response_type=token` +
       `&scope=${encodeURIComponent(CONFIG.SCOPES)}` +
-      `&code_challenge=${encodeURIComponent(challenge)}` +
-      `&code_challenge_method=S256` +
-      `&access_type=offline` +
-      `&prompt=consent`;
+      `&prompt=select_account`;
 
     window.location.href = authUrl;
-  } catch (err) {
-    console.error('Error iniciando OAuth:', err);
-    showToast('Error al iniciar login: ' + err.message, 'error');
   }
 }
 
 async function checkUrlAuthCode() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const code = urlParams.get('code');
-  if (!code) return false;
+  // 1. Revisar si hay un access_token en el Hash (#access_token=...&expires_in=...)
+  const hash = window.location.hash.substring(1);
+  if (hash) {
+    const hashParams = new URLSearchParams(hash);
+    const token = hashParams.get('access_token');
+    const expiresIn = parseInt(hashParams.get('expires_in') || '3600', 10);
 
-  const verifier = sessionStorage.getItem('kikes_pkce_verifier') || '';
-  const redirectUri = window.location.origin + window.location.pathname;
+    if (token) {
+      AppState.accessToken = token;
+      AppState.tokenExpiry = Date.now() + (expiresIn * 1000) - 60000;
+      localStorage.setItem(CONFIG.STORAGE_KEYS.AUTH_TOKEN, AppState.accessToken);
+      localStorage.setItem(CONFIG.STORAGE_KEYS.AUTH_EXPIRY, AppState.tokenExpiry.toString());
 
-  showToast('Autenticando con Google...', 'info');
-
-  try {
-    const bodyParams = new URLSearchParams();
-    bodyParams.append('client_id', CONFIG.CLIENT_ID);
-    bodyParams.append('code', code);
-    if (verifier) {
-      bodyParams.append('code_verifier', verifier);
+      window.history.replaceState(null, null, window.location.pathname);
+      await fetchUserInfoAndSync();
+      return true;
     }
-    bodyParams.append('grant_type', 'authorization_code');
-    bodyParams.append('redirect_uri', redirectUri);
-
-    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: bodyParams.toString()
-    });
-
-    if (!tokenRes.ok) {
-      const errText = await tokenRes.text();
-      throw new Error(`Token exchange falló (${tokenRes.status}): ${errText}`);
-    }
-
-    const tokenData = await tokenRes.json();
-    AppState.accessToken = tokenData.access_token;
-    AppState.tokenExpiry = Date.now() + (parseInt(tokenData.expires_in, 10) * 1000) - 60000;
-
-    localStorage.setItem(CONFIG.STORAGE_KEYS.AUTH_TOKEN, AppState.accessToken);
-    localStorage.setItem(CONFIG.STORAGE_KEYS.AUTH_EXPIRY, AppState.tokenExpiry.toString());
-
-    window.history.replaceState(null, null, window.location.pathname);
-    sessionStorage.removeItem('kikes_pkce_verifier');
-
-    await fetchUserInfoAndSync();
-    return true;
-  } catch (err) {
-    console.error('Error al intercambiar código OAuth:', err);
-    showToast(`Error de login: ${err.message}`, 'error');
-    window.history.replaceState(null, null, window.location.pathname);
-    return false;
   }
+
+  return false;
 }
 
 async function fetchUserInfoAndSync() {
