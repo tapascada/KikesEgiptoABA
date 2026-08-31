@@ -8,7 +8,7 @@
 // 1. CONFIGURACIÓN Y CONSTANTES (Client-Side Seguro sin Secret)
 // =============================================================================
 const CONFIG = {
-  CLIENT_ID: '830764017290-m5tn2g1frdrmmmgkl1ge54fqda8hm296.apps.googleusercontent.com',
+  CLIENT_ID: '830764017290-lhj433d1luv0okqfefs1maba7omrjjjj.apps.googleusercontent.com',
   DEFAULT_FOLDER_ID: '1qE9yA8y9f5lBJ5p91VjqAIcmlTa7WqAi',
   SCOPES: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
   STORAGE_KEYS: {
