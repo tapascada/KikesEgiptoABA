@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>KIKES ABA | Productividad & Baches</title>
+  
+  <!-- PWA meta tags -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#2E7D32">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Kikes ABA">
+  <link rel="apple-touch-icon" href="icon.png">
+  <link rel="icon" type="image/png" href="icon.png">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- External Libraries (CDNs) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <img src="Kikes_image_1.png" alt="KIKES" class="header-logo">
+        <div class="header-titles">
+          <h1>KIKES ABA</h1>
+          <span class="header-subtitle">SCADA PRODUCTIVIDAD & OEE</span>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <!-- Status Indicator Pill -->
+        <div id="sync-status-pill" class="status-pill" title="Estado de sincronización con Google Drive">
+          <span class="status-dot"></span>
+          <span id="sync-status-text" class="status-text">Listo</span>
+        </div>
+
+        <!-- Refresh Button -->
+        <button id="btn-refresh" class="icon-btn" title="Actualizar datos desde Google Drive">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+        </button>
+
+        <!-- User Profile Pill -->
+        <div id="user-profile-btn" class="user-pill" title="Cuenta Google vinculada">
+          <div class="user-avatar" id="user-avatar-initials">K</div>
+          <span id="user-email-display" class="user-email">Cargando...</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Top Analytic Summary Banner + OEE Gauge -->
+    <div class="analytic-summary-banner">
+      <!-- Col 1: Baches Totales -->
+      <div class="summary-col">
+        <span class="summary-icon">📊</span>
+        <div class="summary-text-group">
+          <span class="summary-label">BACHES TOTALES</span>
+          <span id="txt-total-baches" class="summary-val">0</span>
+          <span class="summary-sub" id="txt-sub-toneladas">0.00 Ton producidas</span>
+        </div>
+      </div>
+
+      <div class="summary-divider"></div>
+
+      <!-- Col 2: Rango de Fechas / Turno Activo -->
+      <div class="summary-col">
+        <span class="summary-icon">📅</span>
+        <div class="summary-text-group">
+          <span class="summary-label">PERÍODO / TURNO</span>
+          <span id="txt-fechas-rango" class="summary-val-sm">---</span>
+          <span class="summary-sub" id="txt-turno-activo-label">Todos los Turnos</span>
+        </div>
+      </div>
+
+      <div class="summary-divider"></div>
+
+      <!-- Col 3: OEE Speedometer Gauge (Baches por Hora - Max 15 b/h) -->
+      <div class="summary-gauge-col">
+        <div class="gauge-wrapper">
+          <div class="gauge-top-readout">
+            <span id="gauge-bph-val" class="gauge-number">0.00</span>
+            <span class="gauge-unit">baches/hora</span>
+          </div>
+          <canvas id="gauge-canvas" width="160" height="80"></canvas>
+        </div>
+        <div class="gauge-details">
+          <div class="gauge-metric-row">
+            <span class="gauge-badge" id="gauge-oee-status">OEE: 0%</span>
+            <span id="gauge-tph-val" class="gauge-tph">0.00 Ton/h</span>
+          </div>
+          <span id="gauge-scale-limits" class="gauge-sub">Meta 100%: 12 b/h</span>
+        </div>
+      </div>
+
+      <div class="summary-divider"></div>
+
+      <!-- Col 4: Mín / Máx Instantáneo -->
+      <div class="summary-col">
+        <span class="summary-icon">⏱️</span>
+        <div class="summary-text-group">
+          <span class="summary-label">MÍN / MÁX INSTANTÁNEO</span>
+          <div class="summary-val-row">
+            <span class="summary-sub-bold">Mín: </span>
+            <span id="txt-min-bph" class="summary-val-min">0.00 /h</span>
+            <span class="summary-sub-bold">Máx: </span>
+            <span id="txt-max-bph" class="summary-val-max">0.00 /h</span>
+          </div>
+          <span id="txt-min-max-detalle" class="summary-sub">Mín: 0.0 min | Máx: 0.0 min</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Navigation Bar -->
+    <nav class="nav-bar">
+      <button class="nav-tab active" data-tab="productividad">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+        </svg>
+        <span>Productividad</span>
+      </button>
+
+      <button class="nav-tab" data-tab="consolidado">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="3" y1="9" x2="21" y2="9"></line>
+          <line x1="9" y1="21" x2="9" y2="9"></line>
+        </svg>
+        <span>Consolidado</span>
+      </button>
+
+      <button class="nav-tab" data-tab="baches">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+        </svg>
+        <span>Resumen de Baches</span>
+      </button>
+
+      <button class="nav-tab" data-tab="configuracion">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        <span>Ajustes</span>
+      </button>
+    </nav>
+
+    <!-- Global Filter & Shift Presets Bar -->
+    <div class="filter-bar">
+      <!-- Period / Shift Pills -->
+      <div class="filter-group">
+        <span class="filter-label">Período:</span>
+        <div class="pill-group" id="period-filters">
+          <button class="pill-btn active" data-period="all">Todo</button>
+          <button class="pill-btn" data-period="1h">Última 1h</button>
+          <button class="pill-btn" data-period="8h">Últimas 8h</button>
+          <button class="pill-btn" data-period="turno_actual">🕒 Turno Actual</button>
+          <button class="pill-btn" data-period="today">Hoy</button>
+          <button class="pill-btn" data-period="yesterday">Ayer</button>
+          <button class="pill-btn" data-period="week">Esta Semana</button>
+          <button class="pill-btn" data-period="month">Este Mes</button>
+        </div>
+      </div>
+
+      <!-- Turnos Selector -->
+      <div class="filter-group">
+        <span class="filter-label">Turno:</span>
+        <select id="select-turno" class="select-input">
+          <option value="0">Todos los Turnos</option>
+          <option value="1">Turno 1 (06 - 14)</option>
+          <option value="2">Turno 2 (14 - 22)</option>
+          <option value="3">Turno 3 (22 - 06)</option>
+        </select>
+      </div>
+
+      <!-- Custom Date Range -->
+      <div class="filter-group custom-date-group">
+        <input type="date" id="date-from" class="date-input" title="Fecha inicial">
+        <span class="date-separator">a</span>
+        <input type="date" id="date-to" class="date-input" title="Fecha final">
+        <button id="btn-apply-dates" class="btn-sm btn-primary">Filtrar</button>
+      </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- ================================================================= -->
+      <!-- TAB 1: PRODUCTIVIDAD (Similar a ReportesPage -> Productividad)     -->
+      <!-- ================================================================= -->
+      <section id="tab-productividad" class="tab-pane active">
+        <!-- Productivity Toolbar -->
+        <div class="pane-toolbar">
+          <div class="toolbar-left">
+            <button id="btn-toggle-grafica-prod" class="btn-sm btn-secondary">
+              👁️ <span id="txt-toggle-grafica-prod">Ocultar Gráfica</span>
+            </button>
+
+            <div class="toolbar-item">
+              <label for="select-ventana-movil">Media Móvil:</label>
+              <select id="select-ventana-movil" class="select-input">
+                <option value="5">5 Baches</option>
+                <option value="10" selected>10 Baches</option>
+                <option value="15">15 Baches</option>
+                <option value="20">20 Baches</option>
+              </select>
+            </div>
+
+            <label class="checkbox-label">
+              <input type="checkbox" id="chk-ordenar-tarea">
+              <span>Ordenar por Tarea y Bache</span>
+            </label>
+          </div>
+
+          <div class="toolbar-right">
+            <button id="btn-export-prod-excel" class="btn-sm btn-secondary">📊 Exportar Excel</button>
+            <button id="btn-export-prod-csv" class="btn-sm btn-secondary">📄 CSV</button>
+          </div>
+        </div>
+
+        <!-- Productivity Chart Container (Bar per Batch + Line for Moving Average) -->
+        <div id="pnl-chart-prod" class="chart-box">
+          <div class="chart-header">
+            <div class="chart-title-group">
+              <h3>⚡ Ritmo de Producción por Bache (Baches/Hora)</h3>
+              <span id="chart-prod-subtitle" class="chart-subtitle">Barras: Baches/h instantáneo | Línea Verde: Media Móvil</span>
+            </div>
+          </div>
+          <div class="chart-container" style="height: 270px;">
+            <canvas id="chart-productividad-baches"></canvas>
+          </div>
+        </div>
+
+        <!-- Productivity Data Table -->
+        <div class="table-container">
+          <table class="data-table" id="tabla-productividad">
+            <thead>
+              <tr>
+                <th>OP</th>
+                <th>Tarea</th>
+                <th class="text-right">Bache #</th>
+                <th>Cód. Fórmula</th>
+                <th>Fórmula</th>
+                <th class="text-right">Peso Meta</th>
+                <th class="text-right">Peso Real</th>
+                <th>Duración</th>
+                <th class="text-right text-blue">Baches/Hora</th>
+                <th class="text-right text-gold">Ton/Hora</th>
+                <th>Estado</th>
+                <th>Fecha Fin</th>
+              </tr>
+            </thead>
+            <tbody id="tabla-productividad-body">
+              <tr><td colspan="12" class="text-center empty-state">Cargando registros de productividad...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Table Footer -->
+        <div class="table-footer">
+          <span id="txt-total-filas-prod" class="record-count">Total registros: 0</span>
+          <div class="pagination-controls">
+            <button id="btn-prev-prod" class="btn-pagination" disabled>← Anterior</button>
+            <span id="page-indicator-prod">Página 1 de 1</span>
+            <button id="btn-next-prod" class="btn-pagination" disabled>Siguiente →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- TAB 2: CONSOLIDADO (Similar a ReportesPage -> Consolidado)         -->
+      <!-- ================================================================= -->
+      <section id="tab-consolidado" class="tab-pane">
+        <!-- Consolidado Toolbar -->
+        <div class="pane-toolbar">
+          <div class="toolbar-left">
+            <button id="btn-toggle-grafica-cons" class="btn-sm btn-secondary">
+              👁️ <span id="txt-toggle-grafica-cons">Ocultar Gráfica</span>
+            </button>
+
+            <!-- Agrupación Selector -->
+            <div class="toolbar-item">
+              <label for="select-agrupacion-cons">Agrupar por:</label>
+              <select id="select-agrupacion-cons" class="select-input">
+                <option value="0" selected>📅 Por Día</option>
+                <option value="1">📆 Por Semana</option>
+                <option value="2">🗓️ Por Mes</option>
+                <option value="3">🕒 Por Turno</option>
+                <option value="4">📅🕒 Por Día y Turno</option>
+              </select>
+            </div>
+
+            <!-- Métrica Gráfica Selector -->
+            <div class="toolbar-item">
+              <label for="select-metrica-cons">Métrica Gráfica:</label>
+              <select id="select-metrica-cons" class="select-input">
+                <option value="0" selected>📊 Baches Totales</option>
+                <option value="1">⚖️ Toneladas Totales</option>
+                <option value="2">⚡ Baches / Hora</option>
+                <option value="3">🚀 Toneladas / Hora</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="toolbar-right">
+            <button id="btn-export-cons-excel" class="btn-sm btn-secondary">📊 Exportar Excel</button>
+            <button id="btn-export-cons-csv" class="btn-sm btn-secondary">📄 CSV</button>
+          </div>
+        </div>
+
+        <!-- Consolidated Chart Container -->
+        <div id="pnl-chart-cons" class="chart-box">
+          <div class="chart-header">
+            <div class="chart-title-group">
+              <h3 id="chart-cons-title">📊 Productividad Consolidada</h3>
+              <span id="chart-cons-subtitle" class="chart-subtitle">Consolidado por período seleccionado</span>
+            </div>
+          </div>
+          <div class="chart-container" style="height: 270px;">
+            <canvas id="chart-consolidado-canvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Consolidated Data Table -->
+        <div class="table-container">
+          <table class="data-table" id="tabla-consolidado">
+            <thead>
+              <tr>
+                <th>Período / Agrupación</th>
+                <th>Turno</th>
+                <th class="text-right text-blue">Baches</th>
+                <th class="text-right">Peso Meta (Ton)</th>
+                <th class="text-right text-gold">Peso Real (Ton)</th>
+                <th class="text-right">Desv. (kg)</th>
+                <th>Tiempo Prod.</th>
+                <th>Prom./Bache</th>
+                <th class="text-right text-green">Baches/Hora</th>
+                <th class="text-right text-purple">Ton/Hora</th>
+                <th class="text-right">OPs</th>
+                <th class="text-right">Fórmulas</th>
+              </tr>
+            </thead>
+            <tbody id="tabla-consolidado-body">
+              <tr><td colspan="12" class="text-center empty-state">Cargando consolidado...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Table Footer -->
+        <div class="table-footer">
+          <span id="txt-total-filas-cons" class="record-count">Total registros: 0</span>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- TAB 3: RESUMEN DE BACHES (Explorador Completo)                    -->
+      <!-- ================================================================= -->
+      <section id="tab-baches" class="tab-pane">
+        <!-- Table Toolbar -->
+        <div class="pane-toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="table-search" placeholder="Buscar por OP, Fórmula, Tarea, Estado...">
+          </div>
+
+          <div class="toolbar-right">
+            <select id="filter-formula" class="select-input">
+              <option value="">Todas las Fórmulas</option>
+            </select>
+            <button id="btn-export-excel" class="btn-sm btn-secondary">📊 Exportar Excel</button>
+            <button id="btn-export-csv" class="btn-sm btn-secondary">📄 CSV</button>
+          </div>
+        </div>
+
+        <!-- Baches Data Table -->
+        <div class="table-container">
+          <table class="data-table" id="baches-table">
+            <thead>
+              <tr>
+                <th>OP</th>
+                <th>Tarea</th>
+                <th class="text-right">Bache #</th>
+                <th>Cód. Fórmula</th>
+                <th>Fórmula</th>
+                <th class="text-right">Versión</th>
+                <th class="text-right">Peso Meta (kg)</th>
+                <th class="text-right">Peso Real (kg)</th>
+                <th class="text-right">Desv. (kg)</th>
+                <th>Estado</th>
+                <th>Fecha Fin</th>
+                <th>Duración</th>
+              </tr>
+            </thead>
+            <tbody id="baches-table-body">
+              <tr><td colspan="12" class="text-center empty-state">Cargando baches...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Table Pagination & Footer -->
+        <div class="table-footer">
+          <span id="table-record-count" class="record-count">Mostrando 0 baches</span>
+          <div class="pagination-controls">
+            <button id="btn-prev-page" class="btn-pagination" disabled>← Anterior</button>
+            <span id="page-indicator">Página 1 de 1</span>
+            <button id="btn-next-page" class="btn-pagination" disabled>Siguiente →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <!-- TAB 4: CONFIGURACIÓN                                              -->
+      <!-- ================================================================= -->
+      <section id="tab-configuracion" class="tab-pane">
+        <div class="settings-container">
+          <!-- Google Account Box -->
+          <div class="settings-card">
+            <h3>👤 Cuenta Google Vinculada</h3>
+            <p class="settings-desc">La PWA se conecta a Google Drive para sincronizar los reportes de producción de KIKES ABA.</p>
+            
+            <div class="account-info-box">
+              <div class="account-details">
+                <span class="account-email" id="settings-user-email">andres.platarrueda@kikes.com.co</span>
+                <span class="account-status-tag tag-success">🟢 Autenticado</span>
+              </div>
+              <div class="form-actions">
+                <button id="btn-clear-cache" class="btn-sm btn-secondary">Limpiar Caché</button>
+                <button id="btn-logout-google" class="btn-sm btn-danger">Cerrar Sesión</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- App Info -->
+          <div class="settings-card app-info-card">
+            <h3>ℹ️ Acerca de KIKES ABA PWA</h3>
+            <p><strong>Versión:</strong> 2.0.0 (Productividad & Consolidado SCADA)</p>
+            <p><strong>Planta:</strong> KIKES ABA</p>
+            <p><strong>Integración:</strong> Google Drive API v3 + ClosedXML</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Login Modal / Overlay (shown when not authenticated) -->
+    <div id="login-overlay" class="login-overlay hidden">
+      <div class="login-modal">
+        <img src="Kikes_image_1.png" alt="KIKES" class="login-logo">
+        <h2>KIKES ABA</h2>
+        <p class="login-subtitle">Dashboard de Productividad & Resumen de Baches</p>
+        <p class="login-desc">Inicia sesión con tu cuenta corporativa de Google para visualizar la producción de la planta en tiempo real.</p>
+        
+        <button id="btn-google-login" class="btn-google-login">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          <span>Iniciar Sesión con Google</span>
+        </button>
+
+        <span class="login-footer">Acceso restringido a personal autorizado de KIKES</span>
+      </div>
+    </div>
+
+    <!-- Toast / Notification container -->
+    <div id="toast-container" class="toast-container"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
