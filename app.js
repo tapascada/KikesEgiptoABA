@@ -36,6 +36,7 @@ const AppState = {
   
   allBaches: JSON.parse(localStorage.getItem(CONFIG.STORAGE_KEYS.CACHED_BACHES) || '[]'),
   filteredBaches: [],
+  enrichedProdRows: [],
   
   // Filtros
   currentPeriod: 'all',
@@ -653,7 +654,7 @@ function parseDurationToSeconds(str, fechaInicioStr, fechaFinStr) {
   return 240; // fallback 4 minutos
 }
 
-function applyFiltersAndRender() {
+function applyFiltersAndRender(resetPagination = true) {
   try {
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
@@ -733,8 +734,10 @@ function applyFiltersAndRender() {
     }
 
     AppState.filteredBaches = filtered;
-    AppState.pageProd = 1;
-    AppState.pageBaches = 1;
+    if (resetPagination) {
+      AppState.pageProd = 1;
+      AppState.pageBaches = 1;
+    }
 
     // Procesar cálculos de Productividad y Consolidado
     processProductivityAndRender(filtered);
@@ -890,6 +893,7 @@ function processProductivityAndRender(baches) {
   renderProductivityChart(chartPoints);
 
   // 4. Renderizar Tabla de Productividad
+  AppState.enrichedProdRows = enrichedRows;
   renderProductivityTable(enrichedRows);
 }
 
@@ -1070,8 +1074,8 @@ function renderProductivityTable(rows) {
     return;
   }
 
-  const totalPages = Math.ceil(displayRows.length / CONFIG.PAGE_SIZE_PROD);
-  AppState.pageProd = Math.min(AppState.pageProd, totalPages);
+  const totalPages = Math.max(1, Math.ceil(displayRows.length / CONFIG.PAGE_SIZE_PROD));
+  AppState.pageProd = Math.max(1, Math.min(AppState.pageProd, totalPages));
 
   const startIdx = (AppState.pageProd - 1) * CONFIG.PAGE_SIZE_PROD;
   const endIdx = startIdx + CONFIG.PAGE_SIZE_PROD;
@@ -1474,8 +1478,8 @@ function renderBachesTable(baches) {
     return;
   }
 
-  const totalPages = Math.ceil(sorted.length / CONFIG.PAGE_SIZE_BACHES);
-  AppState.pageBaches = Math.min(AppState.pageBaches, totalPages);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / CONFIG.PAGE_SIZE_BACHES));
+  AppState.pageBaches = Math.max(1, Math.min(AppState.pageBaches, totalPages));
 
   const startIdx = (AppState.pageBaches - 1) * CONFIG.PAGE_SIZE_BACHES;
   const endIdx = startIdx + CONFIG.PAGE_SIZE_BACHES;
@@ -1605,7 +1609,8 @@ function initEventListeners() {
   // Checkbox Ordenar por Tarea
   document.getElementById('chk-ordenar-tarea')?.addEventListener('change', (e) => {
     AppState.sortByTask = e.target.checked;
-    applyFiltersAndRender();
+    AppState.pageProd = 1;
+    renderProductivityTable(AppState.enrichedProdRows || []);
   });
 
   // Selectores Consolidado
@@ -1659,24 +1664,24 @@ function initEventListeners() {
   document.getElementById('btn-prev-prod')?.addEventListener('click', () => {
     if (AppState.pageProd > 1) {
       AppState.pageProd--;
-      applyFiltersAndRender();
+      renderProductivityTable(AppState.enrichedProdRows || []);
     }
   });
   document.getElementById('btn-next-prod')?.addEventListener('click', () => {
     AppState.pageProd++;
-    applyFiltersAndRender();
+    renderProductivityTable(AppState.enrichedProdRows || []);
   });
 
   // Paginación Baches
   document.getElementById('btn-prev-page')?.addEventListener('click', () => {
     if (AppState.pageBaches > 1) {
       AppState.pageBaches--;
-      applyFiltersAndRender();
+      renderBachesTable(AppState.filteredBaches || []);
     }
   });
   document.getElementById('btn-next-page')?.addEventListener('click', () => {
     AppState.pageBaches++;
-    applyFiltersAndRender();
+    renderBachesTable(AppState.filteredBaches || []);
   });
 
   // Exportaciones
