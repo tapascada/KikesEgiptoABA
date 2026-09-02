@@ -654,91 +654,96 @@ function parseDurationToSeconds(str, fechaInicioStr, fechaFinStr) {
 }
 
 function applyFiltersAndRender() {
-  const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
+  try {
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
 
-  let filtered = [...AppState.allBaches];
+    let filtered = [...AppState.allBaches];
 
-  // 1. Filtro de Período
-  if (AppState.currentPeriod === '1h') {
-    const oneHourAgo = new Date(now.getTime() - 3600 * 1000);
-    filtered = filtered.filter(b => {
-      const d = new Date((b.Fecha_Fin || b.Fecha_Inicio || '').replace(' ', 'T'));
-      return d >= oneHourAgo;
-    });
-  } else if (AppState.currentPeriod === '8h') {
-    const eightHoursAgo = new Date(now.getTime() - 8 * 3600 * 1000);
-    filtered = filtered.filter(b => {
-      const d = new Date((b.Fecha_Fin || b.Fecha_Inicio || '').replace(' ', 'T'));
-      return d >= eightHoursAgo;
-    });
-  } else if (AppState.currentPeriod === 'turno_actual') {
-    const currentTurno = obtenerInfoTurno(now);
-    const opDateStr = currentTurno.fechaOperativa.toISOString().split('T')[0];
-    filtered = filtered.filter(b => {
-      const d = new Date((b.Fecha_Fin || b.Fecha_Inicio || '').replace(' ', 'T'));
-      const t = obtenerInfoTurno(d);
-      const bOpDateStr = t.fechaOperativa.toISOString().split('T')[0];
-      return t.turnoNumero === currentTurno.turnoNumero && bOpDateStr === opDateStr;
-    });
-  } else if (AppState.currentPeriod === 'today') {
-    filtered = filtered.filter(b => (b.Fecha_Fin || b.Fecha_Inicio || '').startsWith(todayStr));
-  } else if (AppState.currentPeriod === 'yesterday') {
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yestStr = yesterday.toISOString().split('T')[0];
-    filtered = filtered.filter(b => (b.Fecha_Fin || b.Fecha_Inicio || '').startsWith(yestStr));
-  } else if (AppState.currentPeriod === 'week') {
-    const weekAgo = new Date(now);
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const weekStr = weekAgo.toISOString().split('T')[0];
-    filtered = filtered.filter(b => (b.Fecha_Fin || b.Fecha_Inicio || '').split(' ')[0] >= weekStr);
-  } else if (AppState.currentPeriod === 'month') {
-    const currentMonth = now.toISOString().substring(0, 7);
-    filtered = filtered.filter(b => (b.Fecha_Fin || b.Fecha_Inicio || '').startsWith(currentMonth));
-  } else if (AppState.currentPeriod === 'custom') {
-    const from = AppState.customDateFrom || '1970-01-01';
-    const to = AppState.customDateTo || '2099-12-31';
-    filtered = filtered.filter(b => {
-      const fDate = (b.Fecha_Fin || b.Fecha_Inicio || '').split(' ')[0];
-      return fDate >= from && fDate <= to;
-    });
+    // 1. Filtro de Período
+    if (AppState.currentPeriod === '1h') {
+      const oneHourAgo = new Date(now.getTime() - 3600 * 1000);
+      filtered = filtered.filter(b => {
+        const d = new Date((b.Fecha_Fin || b.Fecha_Inicio || '').replace(' ', 'T'));
+        return d >= oneHourAgo;
+      });
+    } else if (AppState.currentPeriod === '8h') {
+      const eightHoursAgo = new Date(now.getTime() - 8 * 3600 * 1000);
+      filtered = filtered.filter(b => {
+        const d = new Date((b.Fecha_Fin || b.Fecha_Inicio || '').replace(' ', 'T'));
+        return d >= eightHoursAgo;
+      });
+    } else if (AppState.currentPeriod === 'turno_actual') {
+      const currentTurno = obtenerInfoTurno(now);
+      const opDateStr = currentTurno.fechaOperativa.toISOString().split('T')[0];
+      filtered = filtered.filter(b => {
+        const d = new Date((b.Fecha_Fin || b.Fecha_Inicio || '').replace(' ', 'T'));
+        const t = obtenerInfoTurno(d);
+        const bOpDateStr = t.fechaOperativa.toISOString().split('T')[0];
+        return t.turnoNumero === currentTurno.turnoNumero && bOpDateStr === opDateStr;
+      });
+    } else if (AppState.currentPeriod === 'today') {
+      filtered = filtered.filter(b => (b.Fecha_Fin || b.Fecha_Inicio || '').startsWith(todayStr));
+    } else if (AppState.currentPeriod === 'yesterday') {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yestStr = yesterday.toISOString().split('T')[0];
+      filtered = filtered.filter(b => (b.Fecha_Fin || b.Fecha_Inicio || '').startsWith(yestStr));
+    } else if (AppState.currentPeriod === 'week') {
+      const weekAgo = new Date(now);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const weekStr = weekAgo.toISOString().split('T')[0];
+      filtered = filtered.filter(b => (b.Fecha_Fin || b.Fecha_Inicio || '').split(' ')[0] >= weekStr);
+    } else if (AppState.currentPeriod === 'month') {
+      const currentMonth = now.toISOString().substring(0, 7);
+      filtered = filtered.filter(b => (b.Fecha_Fin || b.Fecha_Inicio || '').startsWith(currentMonth));
+    } else if (AppState.currentPeriod === 'custom') {
+      const from = AppState.customDateFrom || '1970-01-01';
+      const to = AppState.customDateTo || '2099-12-31';
+      filtered = filtered.filter(b => {
+        const fDate = (b.Fecha_Fin || b.Fecha_Inicio || '').split(' ')[0];
+        return fDate >= from && fDate <= to;
+      });
+    }
+
+    // 2. Filtro de Turno específico
+    if (AppState.selectedTurno > 0) {
+      filtered = filtered.filter(b => {
+        const d = new Date((b.Fecha_Fin || b.Fecha_Inicio || '').replace(' ', 'T'));
+        const t = obtenerInfoTurno(d);
+        return t.turnoNumero === parseInt(AppState.selectedTurno, 10);
+      });
+    }
+
+    // 3. Filtro por Fórmula
+    if (AppState.selectedFormula) {
+      filtered = filtered.filter(b => b.Nombre_Formula === AppState.selectedFormula || b.Codigo_Formula === AppState.selectedFormula);
+    }
+
+    // 4. Búsqueda de Texto
+    if (AppState.searchTerm) {
+      const term = AppState.searchTerm.toLowerCase();
+      filtered = filtered.filter(b => 
+        b.OP.toLowerCase().includes(term) ||
+        b.Tarea.toLowerCase().includes(term) ||
+        b.Nombre_Formula.toLowerCase().includes(term) ||
+        b.Codigo_Formula.toLowerCase().includes(term) ||
+        b.Estado.toLowerCase().includes(term)
+      );
+    }
+
+    AppState.filteredBaches = filtered;
+    AppState.pageProd = 1;
+    AppState.pageBaches = 1;
+
+    // Procesar cálculos de Productividad y Consolidado
+    processProductivityAndRender(filtered);
+    processConsolidatedAndRender(filtered);
+    renderBachesTable(filtered);
+  } catch (err) {
+    console.error('Error al aplicar filtros y renderizar UI:', err);
+    showToast(`Error al renderizar: ${err.message || err}`, 'error');
   }
-
-  // 2. Filtro de Turno específico
-  if (AppState.selectedTurno > 0) {
-    filtered = filtered.filter(b => {
-      const d = new Date((b.Fecha_Fin || b.Fecha_Inicio || '').replace(' ', 'T'));
-      const t = obtenerInfoTurno(d);
-      return t.turnoNumero === parseInt(AppState.selectedTurno, 10);
-    });
-  }
-
-  // 3. Filtro por Fórmula
-  if (AppState.selectedFormula) {
-    filtered = filtered.filter(b => b.Nombre_Formula === AppState.selectedFormula || b.Codigo_Formula === AppState.selectedFormula);
-  }
-
-  // 4. Búsqueda de Texto
-  if (AppState.searchTerm) {
-    const term = AppState.searchTerm.toLowerCase();
-    filtered = filtered.filter(b => 
-      b.OP.toLowerCase().includes(term) ||
-      b.Tarea.toLowerCase().includes(term) ||
-      b.Nombre_Formula.toLowerCase().includes(term) ||
-      b.Codigo_Formula.toLowerCase().includes(term) ||
-      b.Estado.toLowerCase().includes(term)
-    );
-  }
-
-  AppState.filteredBaches = filtered;
-  AppState.pageProd = 1;
-  AppState.pageBaches = 1;
-
-  // Procesar cálculos de Productividad y Consolidado
-  processProductivityAndRender(filtered);
-  processConsolidatedAndRender(filtered);
-  renderBachesTable(filtered);
 }
 
 function formatSecondsCompact(sec) {
@@ -930,6 +935,7 @@ function renderProductivityChart(points) {
 
   const labels = points.map(p => `#${p.Numero_Bache}`);
   const bphData = points.map(p => p.Baches_Hora);
+  const movilData = points.map(p => p.Baches_Hora_Movil);
   const nPoints = points.length;
   const showBarLabels = nPoints <= 90; // Mostrar números sobre las barras hasta 90 baches
   const barFontSize = nPoints > 60 ? '6.5px' : (nPoints > 30 ? '7.8px' : '9.5px');
@@ -1346,6 +1352,9 @@ function renderConsolidatedChart(rows, metricMode) {
   if (!ctx) return;
 
   const labels = rows.map(r => r.Periodo);
+  let datasetLabel = '';
+  let dataValues = [];
+  let color = '#3498db';
   let labelFormatter = (v) => `${v}`;
   if (metricMode === 0) {
     datasetLabel = 'Baches Totales';
