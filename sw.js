@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kikes-aba-pwa-v5';
+const CACHE_NAME = 'kikes-aba-pwa-v6';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -10,7 +10,8 @@ const STATIC_ASSETS = [
   './icon-192.png',
   './icon-512.png',
   './apple-touch-icon.png',
-  './favicon.png'
+  './favicon.png',
+  './favicon.ico'
 ];
 
 self.addEventListener('install', event => {
