@@ -715,6 +715,18 @@ body {
   font-family: var(--font-mono);
 }
 
+.data-table th.col-cod,
+.data-table td.col-cod {
+  width: 50px;
+  max-width: 60px;
+  min-width: 42px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
 .text-blue { color: var(--accent-blue); font-weight: 700; }
 .text-green { color: var(--kikes-green-light); font-weight: 700; }
 .text-gold { color: var(--accent-gold); font-weight: 700; }

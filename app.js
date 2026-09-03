@@ -654,10 +654,27 @@ function parseDurationToSeconds(str, fechaInicioStr, fechaFinStr) {
   return 240; // fallback 4 minutos
 }
 
+function formatDateToYmd(d) {
+  if (!d || isNaN(d.getTime())) return '';
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getTurnoName(num) {
+  const n = parseInt(num, 10);
+  if (n === 1) return 'Turno 1 (06 - 14)';
+  if (n === 2) return 'Turno 2 (14 - 22)';
+  if (n === 3) return 'Turno 3 (22 - 06)';
+  return 'Todos los Turnos';
+}
+
 function applyFiltersAndRender(resetPagination = true) {
   try {
     const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    const currentTurnoInfo = obtenerInfoTurno(now);
+    const todayOpDateStr = formatDateToYmd(currentTurnoInfo.fechaOperativa);
 
     let filtered = [...AppState.allBaches];
 
@@ -665,52 +682,75 @@ function applyFiltersAndRender(resetPagination = true) {
     if (AppState.currentPeriod === '1h') {
       const oneHourAgo = new Date(now.getTime() - 3600 * 1000);
       filtered = filtered.filter(b => {
-        const d = new Date((b.Fecha_Fin || b.Fecha_Inicio || '').replace(' ', 'T'));
-        return d >= oneHourAgo;
+        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
+        return d && d >= oneHourAgo;
       });
     } else if (AppState.currentPeriod === '8h') {
       const eightHoursAgo = new Date(now.getTime() - 8 * 3600 * 1000);
       filtered = filtered.filter(b => {
-        const d = new Date((b.Fecha_Fin || b.Fecha_Inicio || '').replace(' ', 'T'));
-        return d >= eightHoursAgo;
+        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
+        return d && d >= eightHoursAgo;
       });
     } else if (AppState.currentPeriod === 'turno_actual') {
-      const currentTurno = obtenerInfoTurno(now);
-      const opDateStr = currentTurno.fechaOperativa.toISOString().split('T')[0];
       filtered = filtered.filter(b => {
-        const d = new Date((b.Fecha_Fin || b.Fecha_Inicio || '').replace(' ', 'T'));
+        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
+        if (!d) return false;
         const t = obtenerInfoTurno(d);
-        const bOpDateStr = t.fechaOperativa.toISOString().split('T')[0];
-        return t.turnoNumero === currentTurno.turnoNumero && bOpDateStr === opDateStr;
+        const bOpDateStr = formatDateToYmd(t.fechaOperativa);
+        return t.turnoNumero === currentTurnoInfo.turnoNumero && bOpDateStr === todayOpDateStr;
       });
     } else if (AppState.currentPeriod === 'today') {
-      filtered = filtered.filter(b => (b.Fecha_Fin || b.Fecha_Inicio || '').startsWith(todayStr));
+      filtered = filtered.filter(b => {
+        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
+        if (!d) return false;
+        const t = obtenerInfoTurno(d);
+        return formatDateToYmd(t.fechaOperativa) === todayOpDateStr;
+      });
     } else if (AppState.currentPeriod === 'yesterday') {
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yestStr = yesterday.toISOString().split('T')[0];
-      filtered = filtered.filter(b => (b.Fecha_Fin || b.Fecha_Inicio || '').startsWith(yestStr));
+      const yestDate = new Date(currentTurnoInfo.fechaOperativa);
+      yestDate.setDate(yestDate.getDate() - 1);
+      const yestOpDateStr = formatDateToYmd(yestDate);
+      filtered = filtered.filter(b => {
+        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
+        if (!d) return false;
+        const t = obtenerInfoTurno(d);
+        return formatDateToYmd(t.fechaOperativa) === yestOpDateStr;
+      });
     } else if (AppState.currentPeriod === 'week') {
-      const weekAgo = new Date(now);
+      const weekAgo = new Date(currentTurnoInfo.fechaOperativa);
       weekAgo.setDate(weekAgo.getDate() - 7);
-      const weekStr = weekAgo.toISOString().split('T')[0];
-      filtered = filtered.filter(b => (b.Fecha_Fin || b.Fecha_Inicio || '').split(' ')[0] >= weekStr);
+      const weekStr = formatDateToYmd(weekAgo);
+      filtered = filtered.filter(b => {
+        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
+        if (!d) return false;
+        const t = obtenerInfoTurno(d);
+        return formatDateToYmd(t.fechaOperativa) >= weekStr;
+      });
     } else if (AppState.currentPeriod === 'month') {
-      const currentMonth = now.toISOString().substring(0, 7);
-      filtered = filtered.filter(b => (b.Fecha_Fin || b.Fecha_Inicio || '').startsWith(currentMonth));
+      const currentMonth = todayOpDateStr.substring(0, 7);
+      filtered = filtered.filter(b => {
+        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
+        if (!d) return false;
+        const t = obtenerInfoTurno(d);
+        return formatDateToYmd(t.fechaOperativa).startsWith(currentMonth);
+      });
     } else if (AppState.currentPeriod === 'custom') {
       const from = AppState.customDateFrom || '1970-01-01';
       const to = AppState.customDateTo || '2099-12-31';
       filtered = filtered.filter(b => {
-        const fDate = (b.Fecha_Fin || b.Fecha_Inicio || '').split(' ')[0];
+        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
+        if (!d) return false;
+        const t = obtenerInfoTurno(d);
+        const fDate = formatDateToYmd(t.fechaOperativa);
         return fDate >= from && fDate <= to;
       });
     }
 
-    // 2. Filtro de Turno específico
+    // 2. Filtro de Turno específico (dropdown)
     if (AppState.selectedTurno > 0) {
       filtered = filtered.filter(b => {
-        const d = new Date((b.Fecha_Fin || b.Fecha_Inicio || '').replace(' ', 'T'));
+        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
+        if (!d) return false;
         const t = obtenerInfoTurno(d);
         return t.turnoNumero === parseInt(AppState.selectedTurno, 10);
       });
@@ -729,7 +769,7 @@ function applyFiltersAndRender(resetPagination = true) {
         b.Tarea.toLowerCase().includes(term) ||
         b.Nombre_Formula.toLowerCase().includes(term) ||
         b.Codigo_Formula.toLowerCase().includes(term) ||
-        b.Estado.toLowerCase().includes(term)
+        (b.Estado && b.Estado.toLowerCase().includes(term))
       );
     }
 
@@ -867,20 +907,62 @@ function processProductivityAndRender(baches) {
   document.getElementById('txt-total-baches').textContent = totalBaches.toLocaleString('es-CO');
   document.getElementById('txt-sub-toneladas').textContent = `${totalTon.toFixed(2)} Ton producidas`;
   
-  // Rango fechas
-  if (baches.length > 0) {
-    const fFirst = (baches[0].Fecha_Fin || baches[0].Fecha_Inicio || '').split(' ')[0];
-    const fLast = (baches[baches.length - 1].Fecha_Fin || baches[baches.length - 1].Fecha_Inicio || '').split(' ')[0];
-    document.getElementById('txt-fechas-rango').textContent = fFirst === fLast ? fFirst : `${fFirst} al ${fLast}`;
+  // Rango fechas y Turno activo label
+  const now = new Date();
+  const currentTurnoInfo = obtenerInfoTurno(now);
+  const currentOpDateStr = formatDateToYmd(currentTurnoInfo.fechaOperativa);
+
+  let periodoLabel = '';
+  let turnoLabel = '';
+
+  if (AppState.currentPeriod === 'turno_actual') {
+    periodoLabel = currentOpDateStr;
+    turnoLabel = `🕒 ${currentTurnoInfo.turnoNombre}`;
+  } else if (AppState.currentPeriod === '1h') {
+    periodoLabel = 'Última 1 hora';
+    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'En Tiempo Real';
+  } else if (AppState.currentPeriod === '8h') {
+    periodoLabel = 'Últimas 8 horas';
+    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'En Tiempo Real';
+  } else if (AppState.currentPeriod === 'today') {
+    periodoLabel = `Hoy (${currentOpDateStr})`;
+    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'Todos los Turnos';
+  } else if (AppState.currentPeriod === 'yesterday') {
+    const yestDate = new Date(currentTurnoInfo.fechaOperativa);
+    yestDate.setDate(yestDate.getDate() - 1);
+    const yestStr = formatDateToYmd(yestDate);
+    periodoLabel = `Ayer (${yestStr})`;
+    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'Todos los Turnos';
+  } else if (AppState.currentPeriod === 'week') {
+    periodoLabel = 'Esta Semana';
+    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'Todos los Turnos';
+  } else if (AppState.currentPeriod === 'month') {
+    periodoLabel = `Mes ${currentOpDateStr.substring(0, 7)}`;
+    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'Todos los Turnos';
+  } else if (AppState.currentPeriod === 'custom') {
+    periodoLabel = `${AppState.customDateFrom || '---'} al ${AppState.customDateTo || '---'}`;
+    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'Todos los Turnos';
   } else {
-    document.getElementById('txt-fechas-rango').textContent = 'Sin datos';
+    // 'all'
+    if (baches.length > 0) {
+      const sortedDates = baches.map(b => parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio)).filter(Boolean).sort((a, b) => a - b);
+      if (sortedDates.length > 0) {
+        const fFirst = formatDateToYmd(obtenerInfoTurno(sortedDates[0]).fechaOperativa);
+        const fLast = formatDateToYmd(obtenerInfoTurno(sortedDates[sortedDates.length - 1]).fechaOperativa);
+        periodoLabel = fFirst === fLast ? fFirst : `${fFirst} al ${fLast}`;
+      } else {
+        periodoLabel = 'Histórico Total';
+      }
+    } else {
+      periodoLabel = 'Sin datos';
+    }
+    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'Todos los Turnos';
   }
 
-  // Turno activo label
-  const turnoTxt = AppState.selectedTurno === 1 ? 'Turno 1 (06 - 14)' :
-                   AppState.selectedTurno === 2 ? 'Turno 2 (14 - 22)' :
-                   AppState.selectedTurno === 3 ? 'Turno 3 (22 - 06)' : 'Todos los Turnos';
-  document.getElementById('txt-turno-activo-label').textContent = turnoTxt;
+  const lblFechas = document.getElementById('txt-fechas-rango');
+  const lblTurno = document.getElementById('txt-turno-activo-label');
+  if (lblFechas) lblFechas.textContent = periodoLabel;
+  if (lblTurno) lblTurno.textContent = turnoLabel;
 
   document.getElementById('txt-min-bph').textContent = `${minBph.toFixed(2)} /h`;
   document.getElementById('txt-max-bph').textContent = `${maxBph.toFixed(2)} /h`;
@@ -1066,7 +1148,7 @@ function renderProductivityTable(rows) {
   }
 
   if (displayRows.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="12" class="text-center empty-state">No se encontraron registros de productividad.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center empty-state">No se encontraron registros de productividad.</td></tr>`;
     if (countLabel) countLabel.textContent = 'Total registros: 0';
     if (pageIndicator) pageIndicator.textContent = 'Página 1 de 1';
     if (btnPrev) btnPrev.disabled = true;
@@ -1087,14 +1169,11 @@ function renderProductivityTable(rows) {
         <td><strong>${escapeHtml(r.OP)}</strong></td>
         <td>${escapeHtml(r.Tarea)}</td>
         <td class="text-right">#${r.Numero_Bache}</td>
-        <td>${escapeHtml(r.Codigo_Formula)}</td>
+        <td class="col-cod">${escapeHtml(r.Codigo_Formula)}</td>
         <td>${escapeHtml(r.Nombre_Formula)}</td>
         <td class="text-right">${r.PesoMeta.toFixed(2)} kg</td>
-        <td class="text-right"><strong>${r.PesoReal.toFixed(2)} kg</strong></td>
         <td>${escapeHtml(r.DuracionFormateada || r.Duracion || '-')}</td>
         <td class="text-right text-blue">${r.Baches_Hora > 0 ? r.Baches_Hora.toFixed(2) + ' /h' : '---'}</td>
-        <td class="text-right text-gold">${r.Ton_Hora > 0 ? r.Ton_Hora.toFixed(2) + ' T/h' : '---'}</td>
-        <td><span class="badge ${r.Estado === 'Finalizado' ? 'badge-success' : 'badge-warning'}">${escapeHtml(r.Estado)}</span></td>
         <td>${escapeHtml(r.Fecha_Fin || r.Fecha_Inicio)}</td>
       </tr>
     `;
@@ -1265,9 +1344,11 @@ function processConsolidatedAndRender(baches) {
   const groupsDict = new Map();
 
   for (const b of validRows) {
-    const dt = new Date((b.Fecha_Fin || b.Fecha_Inicio).replace(' ', 'T'));
+    const dt = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
+    if (!dt) continue;
     const tInfo = obtenerInfoTurno(dt);
     const fOp = tInfo.fechaOperativa;
+    const dayStr = formatDateToYmd(fOp);
 
     let groupKey = '';
     let pLabel = '';
@@ -1275,7 +1356,7 @@ function processConsolidatedAndRender(baches) {
     let sortDate = fOp;
 
     if (groupingMode === 0) { // Por Día
-      groupKey = fOp.toISOString().split('T')[0];
+      groupKey = dayStr;
       pLabel = groupKey;
       sortDate = fOp;
     } else if (groupingMode === 1) { // Por Semana
@@ -1284,7 +1365,7 @@ function processConsolidatedAndRender(baches) {
       pLabel = `Sem. ${weekNumber} (${fOp.getFullYear()})`;
       sortDate = fOp;
     } else if (groupingMode === 2) { // Por Mes
-      groupKey = fOp.toISOString().substring(0, 7);
+      groupKey = dayStr.substring(0, 7);
       pLabel = groupKey;
       sortDate = new Date(fOp.getFullYear(), fOp.getMonth(), 1);
     } else if (groupingMode === 3) { // Por Turno
@@ -1293,7 +1374,6 @@ function processConsolidatedAndRender(baches) {
       pTurno = tInfo.turnoNombre;
       sortDate = new Date(2000, 0, tInfo.turnoNumero);
     } else if (groupingMode === 4) { // Por Día y Turno
-      const dayStr = fOp.toISOString().split('T')[0];
       groupKey = `${dayStr}-T${tInfo.turnoNumero}`;
       pLabel = `${dayStr} (T${tInfo.turnoNumero})`;
       pTurno = tInfo.turnoNombre;

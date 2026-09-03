@@ -24,7 +24,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
   <div id="app">
@@ -253,19 +253,16 @@
                 <th>OP</th>
                 <th>Tarea</th>
                 <th class="text-right">Bache #</th>
-                <th>Cód. Fórmula</th>
+                <th class="col-cod">Cod.</th>
                 <th>Fórmula</th>
                 <th class="text-right">Peso Meta</th>
-                <th class="text-right">Peso Real</th>
                 <th>Duración</th>
                 <th class="text-right text-blue">Baches/Hora</th>
-                <th class="text-right text-gold">Ton/Hora</th>
-                <th>Estado</th>
                 <th>Fecha Fin</th>
               </tr>
             </thead>
             <tbody id="tabla-productividad-body">
-              <tr><td colspan="12" class="text-center empty-state">Cargando registros de productividad...</td></tr>
+              <tr><td colspan="9" class="text-center empty-state">Cargando registros de productividad...</td></tr>
             </tbody>
           </table>
         </div>
@@ -482,6 +479,6 @@
     <div id="toast-container" class="toast-container"></div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

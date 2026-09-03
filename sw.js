@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kikes-aba-pwa-v1';
+const CACHE_NAME = 'kikes-aba-pwa-v3';
 const STATIC_ASSETS = [
   './',
   './index.html',
