@@ -358,12 +358,11 @@ async function syncWithMasterManifest(remoteManifest, accessToken) {
         const localDays = localMonth.days || {};
         const localDay = localDays[dayKey];
         const localHasDay = storeDays[dayKey] && localDay &&
-                            localDay.isComplete && remoteDay.isComplete &&
                             localDay.fileId === remoteDay.fileId &&
                             localDay.lastModified === remoteDay.lastModified;
 
         if (!localHasDay) {
-          // Descargar el archivo diario (día nuevo o activo en curso)
+          // Descargar el archivo diario únicamente si es nuevo o fue modificado en Drive
           filesToDownload.push({
             type: 'day',
             key: dayKey,
