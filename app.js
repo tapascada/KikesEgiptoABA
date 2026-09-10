@@ -45,6 +45,9 @@ const AppState = {
   customDateTo: null,
   selectedFormula: '',
   searchTerm: '',
+  filterOP: '',
+  filterTarea: '',
+  filterFormulaInput: '',
   
   // Productividad
   movingAverageWindow: 10,
@@ -318,6 +321,14 @@ async function fetchRemoteMasterManifest(rootFolderId, accessToken) {
   }
 }
 
+// Retorna la fecha local en formato YYYY-MM-DD
+function getLocalDateString(d = new Date()) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 // Sincronización diferencial inteligente basada en el Manifiesto Maestro
 async function syncWithMasterManifest(remoteManifest, accessToken) {
   // Cargar manifiesto y almacenes locales
@@ -329,19 +340,20 @@ async function syncWithMasterManifest(remoteManifest, accessToken) {
 
   const filesToDownload = [];
   const monthsToClean = new Set();
+  const todayStr = getLocalDateString();
 
   // 1. Evaluar meses remotos
   for (const [monthKey, remoteMonth] of Object.entries(remoteManifest.months || {})) {
     const localMonth = localManifest.months[monthKey] || { isComplete: false, monthlyFile: null, days: {} };
 
     if (remoteMonth.isComplete && remoteMonth.monthlyFile) {
-      // El mes remoto ya está completamente consolidado en un solo archivo
-      const localHasMonth = storeMonths[monthKey] && localMonth.isComplete && localMonth.monthlyFile &&
-                            localMonth.monthlyFile.fileId === remoteMonth.monthlyFile.fileId &&
-                            localMonth.monthlyFile.lastModified === remoteMonth.monthlyFile.lastModified;
+      // Caso 1: El mes remoto ya está completamente consolidado en un solo archivo
+      const localHasMonth = storeMonths[monthKey] && Array.isArray(storeMonths[monthKey]) && storeMonths[monthKey].length > 0 &&
+                            localMonth.isComplete && localMonth.monthlyFile &&
+                            localMonth.monthlyFile.fileId === remoteMonth.monthlyFile.fileId;
 
       if (!localHasMonth) {
-        // Descargar el archivo consolidado mensual
+        // Descargar el archivo consolidado mensual (una sola vez)
         filesToDownload.push({
           type: 'month',
           key: monthKey,
@@ -353,24 +365,45 @@ async function syncWithMasterManifest(remoteManifest, accessToken) {
         monthsToClean.add(monthKey);
       }
     } else {
-      // El mes sigue activo: revisar días individuales
+      // Caso 2: El mes sigue activo: se va consolidando día por día
       for (const [dayKey, remoteDay] of Object.entries(remoteMonth.days || {})) {
         const localDays = localMonth.days || {};
         const localDay = localDays[dayKey];
-        const localHasDay = storeDays[dayKey] && localDay &&
-                            localDay.fileId === remoteDay.fileId &&
-                            localDay.lastModified === remoteDay.lastModified;
+        const hasLocalData = storeDays[dayKey] && Array.isArray(storeDays[dayKey]) && storeDays[dayKey].length > 0;
+        const isPastDay = (dayKey < todayStr);
 
-        if (!localHasDay) {
-          // Descargar el archivo diario únicamente si es nuevo o fue modificado en Drive
-          filesToDownload.push({
-            type: 'day',
-            key: dayKey,
-            fileId: remoteDay.fileId,
-            fileName: remoteDay.fileName,
-            monthKey: monthKey,
-            meta: remoteDay
-          });
+        if (isPastDay) {
+          // Días anteriores ya cerrados: si ya se encuentran descargados en local, no se vuelven a importar
+          const localHasDay = hasLocalData && localDay &&
+                              (remoteDay.isComplete || localDay.fileId === remoteDay.fileId);
+
+          if (!localHasDay) {
+            // Solo descargar si falta en el almacenamiento local
+            filesToDownload.push({
+              type: 'day',
+              key: dayKey,
+              fileId: remoteDay.fileId,
+              fileName: remoteDay.fileName,
+              monthKey: monthKey,
+              meta: remoteDay
+            });
+          }
+        } else {
+          // Día en curso (hoy): solo se descarga si no existe o si tuvo modificaciones en Drive
+          const localHasDay = hasLocalData && localDay &&
+                              localDay.fileId === remoteDay.fileId &&
+                              localDay.lastModified === remoteDay.lastModified;
+
+          if (!localHasDay) {
+            filesToDownload.push({
+              type: 'day',
+              key: dayKey,
+              fileId: remoteDay.fileId,
+              fileName: remoteDay.fileName,
+              monthKey: monthKey,
+              meta: remoteDay
+            });
+          }
         }
       }
     }
@@ -669,79 +702,81 @@ function getTurnoName(num) {
   return 'Todos los Turnos';
 }
 
+function formatDateTimeShort(d) {
+  if (!d || isNaN(d.getTime())) return '---';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+}
+
 function applyFiltersAndRender(resetPagination = true) {
   try {
     const now = new Date();
     const currentTurnoInfo = obtenerInfoTurno(now);
     const todayOpDateStr = formatDateToYmd(currentTurnoInfo.fechaOperativa);
 
+    let filterStart = null;
+    let filterEnd = null;
+
+    // 1. Determinar Rango de Fechas según el Período seleccionado
+    if (AppState.currentPeriod === '1h') {
+      filterStart = new Date(now.getTime() - 3600 * 1000);
+      filterEnd = now;
+    } else if (AppState.currentPeriod === '4h') {
+      filterStart = new Date(now.getTime() - 4 * 3600 * 1000);
+      filterEnd = now;
+    } else if (AppState.currentPeriod === '8h') {
+      filterStart = new Date(now.getTime() - 8 * 3600 * 1000);
+      filterEnd = now;
+    } else if (AppState.currentPeriod === '24h') {
+      filterStart = new Date(now.getTime() - 24 * 3600 * 1000);
+      filterEnd = now;
+    } else if (AppState.currentPeriod === 'turno_actual') {
+      const tNum = currentTurnoInfo.turnoNumero;
+      const fOp = currentTurnoInfo.fechaOperativa;
+      if (tNum === 1) {
+        filterStart = new Date(fOp.getFullYear(), fOp.getMonth(), fOp.getDate(), 6, 0, 0);
+        filterEnd = new Date(fOp.getFullYear(), fOp.getMonth(), fOp.getDate(), 14, 0, 0);
+      } else if (tNum === 2) {
+        filterStart = new Date(fOp.getFullYear(), fOp.getMonth(), fOp.getDate(), 14, 0, 0);
+        filterEnd = new Date(fOp.getFullYear(), fOp.getMonth(), fOp.getDate(), 22, 0, 0);
+      } else {
+        filterStart = new Date(fOp.getFullYear(), fOp.getMonth(), fOp.getDate(), 22, 0, 0);
+        const nextDay = new Date(fOp.getTime() + 86400000);
+        filterEnd = new Date(nextDay.getFullYear(), nextDay.getMonth(), nextDay.getDate(), 6, 0, 0);
+      }
+    } else if (AppState.currentPeriod === 'today') {
+      filterStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      filterEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    } else if (AppState.currentPeriod === 'yesterday') {
+      const yest = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      filterStart = new Date(yest.getFullYear(), yest.getMonth(), yest.getDate(), 0, 0, 0);
+      filterEnd = new Date(yest.getFullYear(), yest.getMonth(), yest.getDate(), 23, 59, 59);
+    } else if (AppState.currentPeriod === 'week') {
+      const dayOfWeek = (now.getDay() + 6) % 7; // Lunes = 0
+      filterStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek, 0, 0, 0);
+      filterEnd = now;
+    } else if (AppState.currentPeriod === 'month') {
+      filterStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+      filterEnd = now;
+    } else if (AppState.currentPeriod === 'custom') {
+      filterStart = AppState.customDateFrom ? new Date(AppState.customDateFrom + 'T00:00:00') : null;
+      filterEnd = AppState.customDateTo ? new Date(AppState.customDateTo + 'T23:59:59') : null;
+    }
+
     let filtered = [...AppState.allBaches];
 
-    // 1. Filtro de Período
-    if (AppState.currentPeriod === '1h') {
-      const oneHourAgo = new Date(now.getTime() - 3600 * 1000);
-      filtered = filtered.filter(b => {
-        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
-        return d && d >= oneHourAgo;
-      });
-    } else if (AppState.currentPeriod === '8h') {
-      const eightHoursAgo = new Date(now.getTime() - 8 * 3600 * 1000);
-      filtered = filtered.filter(b => {
-        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
-        return d && d >= eightHoursAgo;
-      });
-    } else if (AppState.currentPeriod === 'turno_actual') {
+    // Aplicar filtro por rango de fechas (Fecha_Fin o Fecha_Inicio)
+    if (filterStart || filterEnd) {
       filtered = filtered.filter(b => {
         const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
         if (!d) return false;
-        const t = obtenerInfoTurno(d);
-        const bOpDateStr = formatDateToYmd(t.fechaOperativa);
-        return t.turnoNumero === currentTurnoInfo.turnoNumero && bOpDateStr === todayOpDateStr;
-      });
-    } else if (AppState.currentPeriod === 'today') {
-      filtered = filtered.filter(b => {
-        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
-        if (!d) return false;
-        const t = obtenerInfoTurno(d);
-        return formatDateToYmd(t.fechaOperativa) === todayOpDateStr;
-      });
-    } else if (AppState.currentPeriod === 'yesterday') {
-      const yestDate = new Date(currentTurnoInfo.fechaOperativa);
-      yestDate.setDate(yestDate.getDate() - 1);
-      const yestOpDateStr = formatDateToYmd(yestDate);
-      filtered = filtered.filter(b => {
-        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
-        if (!d) return false;
-        const t = obtenerInfoTurno(d);
-        return formatDateToYmd(t.fechaOperativa) === yestOpDateStr;
-      });
-    } else if (AppState.currentPeriod === 'week') {
-      const weekAgo = new Date(currentTurnoInfo.fechaOperativa);
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      const weekStr = formatDateToYmd(weekAgo);
-      filtered = filtered.filter(b => {
-        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
-        if (!d) return false;
-        const t = obtenerInfoTurno(d);
-        return formatDateToYmd(t.fechaOperativa) >= weekStr;
-      });
-    } else if (AppState.currentPeriod === 'month') {
-      const currentMonth = todayOpDateStr.substring(0, 7);
-      filtered = filtered.filter(b => {
-        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
-        if (!d) return false;
-        const t = obtenerInfoTurno(d);
-        return formatDateToYmd(t.fechaOperativa).startsWith(currentMonth);
-      });
-    } else if (AppState.currentPeriod === 'custom') {
-      const from = AppState.customDateFrom || '1970-01-01';
-      const to = AppState.customDateTo || '2099-12-31';
-      filtered = filtered.filter(b => {
-        const d = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio);
-        if (!d) return false;
-        const t = obtenerInfoTurno(d);
-        const fDate = formatDateToYmd(t.fechaOperativa);
-        return fDate >= from && fDate <= to;
+        if (filterStart && d < filterStart) return false;
+        if (filterEnd && d > filterEnd) return false;
+        return true;
       });
     }
 
@@ -755,19 +790,43 @@ function applyFiltersAndRender(resetPagination = true) {
       });
     }
 
-    // 3. Filtro por Fórmula
+    // 3. Filtro por OP (input secundario)
+    if (AppState.filterOP) {
+      const opTerm = AppState.filterOP.toLowerCase().trim();
+      filtered = filtered.filter(b => (b.OP || '').toString().toLowerCase().includes(opTerm));
+    }
+
+    // 4. Filtro por Tarea (input secundario)
+    if (AppState.filterTarea) {
+      const tarTerm = AppState.filterTarea.toLowerCase().trim();
+      filtered = filtered.filter(b => (b.Tarea || '').toString().toLowerCase().includes(tarTerm) || (b.Id_Tarea || '').toString().toLowerCase().includes(tarTerm));
+    }
+
+    // 5. Filtro por Fórmula texto (input secundario, soporta comas como en escritorio)
+    if (AppState.filterFormulaInput) {
+      const tokens = AppState.filterFormulaInput.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      if (tokens.length > 0) {
+        filtered = filtered.filter(b => {
+          const nom = (b.Nombre_Formula || '').toLowerCase();
+          const cod = (b.Codigo_Formula || '').toLowerCase();
+          return tokens.some(tok => nom.includes(tok) || cod.includes(tok));
+        });
+      }
+    }
+
+    // 6. Filtro por Fórmula dropdown (Tab Baches)
     if (AppState.selectedFormula) {
       filtered = filtered.filter(b => b.Nombre_Formula === AppState.selectedFormula || b.Codigo_Formula === AppState.selectedFormula);
     }
 
-    // 4. Búsqueda de Texto
+    // 7. Búsqueda General de Texto
     if (AppState.searchTerm) {
       const term = AppState.searchTerm.toLowerCase();
       filtered = filtered.filter(b => 
-        b.OP.toLowerCase().includes(term) ||
-        b.Tarea.toLowerCase().includes(term) ||
-        b.Nombre_Formula.toLowerCase().includes(term) ||
-        b.Codigo_Formula.toLowerCase().includes(term) ||
+        (b.OP || '').toString().toLowerCase().includes(term) ||
+        (b.Tarea || '').toString().toLowerCase().includes(term) ||
+        (b.Nombre_Formula || '').toLowerCase().includes(term) ||
+        (b.Codigo_Formula || '').toLowerCase().includes(term) ||
         (b.Estado && b.Estado.toLowerCase().includes(term))
       );
     }
@@ -778,8 +837,8 @@ function applyFiltersAndRender(resetPagination = true) {
       AppState.pageBaches = 1;
     }
 
-    // Procesar cálculos de Productividad y Consolidado
-    processProductivityAndRender(filtered);
+    // Procesar cálculos de Productividad y Consolidado con el contexto temporal exacto
+    processProductivityAndRender(filtered, filterStart, filterEnd);
     processConsolidatedAndRender(filtered);
     renderBachesTable(filtered);
   } catch (err) {
@@ -801,7 +860,7 @@ function formatSecondsCompact(sec) {
 // =============================================================================
 // 7. CÁLCULO Y RENDERIZADO DE PRODUCTIVIDAD (TAB 1 & BANNER)
 // =============================================================================
-function processProductivityAndRender(baches) {
+function processProductivityAndRender(baches, filterStart = null, filterEnd = null) {
   const windowSize = AppState.movingAverageWindow;
   const bphBuffer = [];
   const tphBuffer = [];
@@ -814,7 +873,7 @@ function processProductivityAndRender(baches) {
   const enrichedRows = [];
   const chartPoints = [];
 
-  // 1. Ordenar cronológicamente por Fecha_Fin ASC
+  // 1. Ordenar cronológicamente por Fecha_Fin ASC (o Fecha_Inicio si no hay fin)
   const chronological = [...baches].sort((a, b) => {
     const da = parseDateFlexible(a.Fecha_Fin || a.Fecha_Inicio) || new Date(0);
     const db = parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio) || new Date(0);
@@ -823,29 +882,9 @@ function processProductivityAndRender(baches) {
 
   for (let i = 0; i < chronological.length; i++) {
     const b = chronological[i];
-    const dFin = parseDateFlexible(b.Fecha_Fin);
-    const dInicio = parseDateFlexible(b.Fecha_Inicio);
-
-    let durSec = 0;
-
-    // Calcular diferencia entre la Fecha_Fin de este bache contra la Fecha_Fin del bache anterior (LAG)
-    if (i > 0 && dFin) {
-      const prevBache = chronological[i - 1];
-      const dPrevFin = parseDateFlexible(prevBache.Fecha_Fin);
-      if (dPrevFin) {
-        const diff = (dFin.getTime() - dPrevFin.getTime()) / 1000;
-        // Si el tiempo es válido (entre 5 seg y 12 horas)
-        if (diff > 5 && diff < 43200) {
-          durSec = diff;
-        }
-      }
-    }
-
-    // Si es el primer bache de la serie o no hubo bache previo cercano, usar su duración individual
-    if (durSec <= 0) {
-      durSec = parseDurationToSeconds(b.Duracion, b.Fecha_Inicio, b.Fecha_Fin);
-    }
-
+    
+    // Duración individual directa del bache (coincidente 1:1 con ReportesPage.xaml.vb líneas 373-391)
+    const durSec = parseDurationToSeconds(b.Duracion, b.Fecha_Inicio, b.Fecha_Fin);
     const pesoRealKg = b.PesoReal || 0.0;
     const pesoRealTon = pesoRealKg / 1000.0;
 
@@ -853,7 +892,9 @@ function processProductivityAndRender(baches) {
     let tph = 0.0;
 
     if (durSec > 10.0) {
+      // 3600 / segundos = 60 / minutos
       bph = Math.round((3600.0 / durSec) * 100) / 100;
+      // PesoTon * bph
       tph = Math.round((pesoRealTon * bph) * 100) / 100;
 
       if (bph < minBph) minBph = bph;
@@ -893,70 +934,56 @@ function processProductivityAndRender(baches) {
   if (minBph === 999.0) minBph = 0.0;
   if (minSec === 999999) minSec = 0;
 
-  // Promedios globales
+  // 2. Cálculo de Rendimiento Global del Sistema (ReportesPage.xaml.vb líneas 940-1035)
   const totalBaches = baches.length;
   const totalKg = baches.reduce((acc, b) => acc + (b.PesoReal || 0), 0);
   const totalTon = totalKg / 1000.0;
 
-  const validBphList = enrichedRows.map(r => r.Baches_Hora).filter(v => v > 0);
-  const avgBph = validBphList.length > 0 ? (validBphList.reduce((a, v) => a + v, 0) / validBphList.length) : 0.0;
-  const avgTph = avgBph * (totalBaches > 0 ? (totalTon / totalBaches) : 0);
+  let minStart = filterStart ? new Date(filterStart) : null;
+  let maxEnd = filterEnd ? new Date(filterEnd) : null;
 
-  // 1. Actualizar Banner Superior
-  document.getElementById('txt-total-baches').textContent = totalBaches.toLocaleString('es-CO');
-  document.getElementById('txt-sub-toneladas').textContent = `${totalTon.toFixed(2)} Ton producidas`;
-  
-  // Rango fechas y Turno activo label
-  const now = new Date();
-  const currentTurnoInfo = obtenerInfoTurno(now);
-  const currentOpDateStr = formatDateToYmd(currentTurnoInfo.fechaOperativa);
-
-  let periodoLabel = '';
-  let turnoLabel = '';
-
-  if (AppState.currentPeriod === 'turno_actual') {
-    periodoLabel = currentOpDateStr;
-    turnoLabel = `🕒 ${currentTurnoInfo.turnoNombre}`;
-  } else if (AppState.currentPeriod === '1h') {
-    periodoLabel = 'Última 1 hora';
-    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'En Tiempo Real';
-  } else if (AppState.currentPeriod === '8h') {
-    periodoLabel = 'Últimas 8 horas';
-    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'En Tiempo Real';
-  } else if (AppState.currentPeriod === 'today') {
-    periodoLabel = `Hoy (${currentOpDateStr})`;
-    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'Todos los Turnos';
-  } else if (AppState.currentPeriod === 'yesterday') {
-    const yestDate = new Date(currentTurnoInfo.fechaOperativa);
-    yestDate.setDate(yestDate.getDate() - 1);
-    const yestStr = formatDateToYmd(yestDate);
-    periodoLabel = `Ayer (${yestStr})`;
-    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'Todos los Turnos';
-  } else if (AppState.currentPeriod === 'week') {
-    periodoLabel = 'Esta Semana';
-    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'Todos los Turnos';
-  } else if (AppState.currentPeriod === 'month') {
-    periodoLabel = `Mes ${currentOpDateStr.substring(0, 7)}`;
-    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'Todos los Turnos';
-  } else if (AppState.currentPeriod === 'custom') {
-    periodoLabel = `${AppState.customDateFrom || '---'} al ${AppState.customDateTo || '---'}`;
-    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'Todos los Turnos';
-  } else {
-    // 'all'
-    if (baches.length > 0) {
-      const sortedDates = baches.map(b => parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio)).filter(Boolean).sort((a, b) => a - b);
-      if (sortedDates.length > 0) {
-        const fFirst = formatDateToYmd(obtenerInfoTurno(sortedDates[0]).fechaOperativa);
-        const fLast = formatDateToYmd(obtenerInfoTurno(sortedDates[sortedDates.length - 1]).fechaOperativa);
-        periodoLabel = fFirst === fLast ? fFirst : `${fFirst} al ${fLast}`;
-      } else {
-        periodoLabel = 'Histórico Total';
-      }
-    } else {
-      periodoLabel = 'Sin datos';
+  if (!minStart || !maxEnd) {
+    const dates = baches.map(b => parseDateFlexible(b.Fecha_Fin || b.Fecha_Inicio)).filter(Boolean);
+    if (dates.length > 0) {
+      const sortedD = dates.sort((a, b) => a - b);
+      if (!minStart) minStart = sortedD[0];
+      if (!maxEnd) maxEnd = sortedD[sortedD.length - 1];
     }
-    turnoLabel = AppState.selectedTurno > 0 ? getTurnoName(AppState.selectedTurno) : 'Todos los Turnos';
   }
+  if (!minStart) minStart = new Date(Date.now() - 30 * 86400000);
+  if (!maxEnd) maxEnd = new Date();
+
+  // Desktop logic: si maxEnd es superior al momento actual, se acota a now
+  const now = new Date();
+  let effectiveMaxEnd = maxEnd > now ? now : maxEnd;
+  if (effectiveMaxEnd < minStart) effectiveMaxEnd = minStart;
+
+  const elapsedMs = effectiveMaxEnd.getTime() - minStart.getTime();
+  const elapsedHours = elapsedMs / (3600 * 1000);
+
+  let bphReal = 0.0;
+  let tphReal = 0.0;
+
+  if (elapsedHours > 0.05 && totalBaches > 0) {
+    bphReal = Math.round((totalBaches / elapsedHours) * 100) / 100;
+    tphReal = Math.round((totalTon / elapsedHours) * 100) / 100;
+  }
+
+  // 3. Actualizar Banner Superior
+  document.getElementById('txt-total-baches').textContent = totalBaches.toLocaleString('es-CO');
+  
+  const lastPt = chartPoints.length > 0 ? chartPoints[chartPoints.length - 1] : null;
+  if (lastPt && lastPt.Baches_Hora_Movil > 0) {
+    document.getElementById('txt-sub-toneladas').textContent = `${totalTon.toFixed(2)} Ton | Últ. Móvil (${windowSize} b.): ${lastPt.Baches_Hora_Movil.toFixed(2)} /h (${lastPt.Ton_Hora_Movil.toFixed(2)} T/h)`;
+  } else {
+    document.getElementById('txt-sub-toneladas').textContent = `${totalTon.toFixed(2)} Ton producidas`;
+  }
+
+  // Rango fechas y Turno activo label
+  let periodoLabel = `${formatDateTimeShort(minStart)} al ${formatDateTimeShort(effectiveMaxEnd)}`;
+  let turnoLabel = AppState.selectedTurno > 0 
+    ? getTurnoName(AppState.selectedTurno) 
+    : (AppState.currentPeriod === 'turno_actual' ? `🕒 ${obtenerInfoTurno(now).turnoNombre}` : 'Todos los Turnos');
 
   const lblFechas = document.getElementById('txt-fechas-rango');
   const lblTurno = document.getElementById('txt-turno-activo-label');
@@ -967,13 +994,13 @@ function processProductivityAndRender(baches) {
   document.getElementById('txt-max-bph').textContent = `${maxBph.toFixed(2)} /h`;
   document.getElementById('txt-min-max-detalle').textContent = `Mín: ${(minSec / 60).toFixed(1)} min | Máx: ${(maxSec / 60).toFixed(1)} min`;
 
-  // 2. Actualizar Aguja OEE Gauge (Meta 15 baches/h)
-  animateOeeGauge(avgBph, avgTph);
+  // 4. Actualizar Aguja OEE Gauge (Alimentado con bphReal y tphReal exactamente como Desktop)
+  animateOeeGauge(bphReal, tphReal);
 
-  // 3. Renderizar Gráfica de Productividad por Bache
+  // 5. Renderizar Gráfica de Productividad por Bache
   renderProductivityChart(chartPoints);
 
-  // 4. Renderizar Tabla de Productividad
+  // 6. Renderizar Tabla de Productividad
   AppState.enrichedProdRows = enrichedRows;
   renderProductivityTable(enrichedRows);
 }
@@ -1356,7 +1383,7 @@ function processConsolidatedAndRender(baches) {
 
     if (groupingMode === 0) { // Por Día
       groupKey = dayStr;
-      pLabel = groupKey;
+      pLabel = `${String(fOp.getDate()).padStart(2, '0')}/${String(fOp.getMonth() + 1).padStart(2, '0')}/${fOp.getFullYear()}`;
       sortDate = fOp;
     } else if (groupingMode === 1) { // Por Semana
       const weekNumber = getWeekNumber(fOp);
@@ -1364,8 +1391,9 @@ function processConsolidatedAndRender(baches) {
       pLabel = `Sem. ${weekNumber} (${fOp.getFullYear()})`;
       sortDate = fOp;
     } else if (groupingMode === 2) { // Por Mes
+      const mNames = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
       groupKey = dayStr.substring(0, 7);
-      pLabel = groupKey;
+      pLabel = `${mNames[fOp.getMonth()]} ${fOp.getFullYear()}`;
       sortDate = new Date(fOp.getFullYear(), fOp.getMonth(), 1);
     } else if (groupingMode === 3) { // Por Turno
       groupKey = `T${tInfo.turnoNumero}`;
@@ -1374,18 +1402,43 @@ function processConsolidatedAndRender(baches) {
       sortDate = new Date(2000, 0, tInfo.turnoNumero);
     } else if (groupingMode === 4) { // Por Día y Turno
       groupKey = `${dayStr}-T${tInfo.turnoNumero}`;
-      pLabel = `${dayStr} (T${tInfo.turnoNumero})`;
+      pLabel = `${String(fOp.getDate()).padStart(2, '0')}/${String(fOp.getMonth() + 1).padStart(2, '0')} (T${tInfo.turnoNumero})`;
       pTurno = tInfo.turnoNombre;
-      sortDate = fOp;
+      sortDate = new Date(fOp.getFullYear(), fOp.getMonth(), fOp.getDate(), tInfo.turnoNumero === 1 ? 6 : (tInfo.turnoNumero === 2 ? 14 : 22));
+    } else if (groupingMode === 5) { // Por Tarea
+      const tareaVal = b.Tarea || b.Id_Tarea || 'Sin Tarea';
+      groupKey = `TAR_${tareaVal.toString().toUpperCase().trim()}`;
+      pLabel = tareaVal;
+      pTurno = 'Todos los Turnos';
+      sortDate = dt;
+    } else if (groupingMode === 6) { // Por Fórmula
+      const cod = b.Codigo_Formula || 'S/C';
+      const nom = b.Nombre_Formula || cod;
+      groupKey = `FORM_${cod.toString().toUpperCase().trim()}`;
+      pLabel = nom;
+      pTurno = 'Todos los Turnos';
+      sortDate = dt;
+    } else if (groupingMode === 7) { // Por Fórmula + Versión
+      const cod = b.Codigo_Formula || 'S/C';
+      const nom = b.Nombre_Formula || cod;
+      const ver = b.Version || '1';
+      groupKey = `FORM_V_${cod.toString().toUpperCase().trim()}_V${ver}`;
+      pLabel = `${nom} (v${ver})`;
+      pTurno = 'Todos los Turnos';
+      sortDate = dt;
     }
 
     if (!groupsDict.has(groupKey)) {
       groupsDict.set(groupKey, { key: groupKey, label: pLabel, turno: pTurno, sortDate: sortDate, baches: [] });
+    } else {
+      // Mantener la fecha más reciente si es por agrupación cualitativa
+      const grp = groupsDict.get(groupKey);
+      if (dt > grp.sortDate) grp.sortDate = dt;
     }
     groupsDict.get(groupKey).baches.push(b);
   }
 
-  // Consolidar métricas para cada grupo
+  // Consolidar métricas para cada grupo (coincidente 1:1 con ReportesPage.xaml.vb líneas 671-730)
   const consolidatedRows = Array.from(groupsDict.values()).map(g => {
     const totalB = g.baches.length;
     const pesoMetaKg = g.baches.reduce((a, b) => a + (b.PesoMeta || 0), 0);
@@ -1395,10 +1448,11 @@ function processConsolidatedAndRender(baches) {
     const desvKg = pesoRealKg - pesoMetaKg;
 
     const totalDurSec = g.baches.reduce((a, b) => a + parseDurationToSeconds(b.Duracion, b.Fecha_Inicio, b.Fecha_Fin), 0);
+    const durHoras = totalDurSec / 3600.0;
     const avgSecPerBache = totalB > 0 ? (totalDurSec / totalB) : 0;
 
-    const bph = avgSecPerBache > 10 ? Math.round((3600.0 / avgSecPerBache) * 100) / 100 : 0.0;
-    const tph = Math.round((pesoRealTon * (totalDurSec > 0 ? (3600.0 / totalDurSec) : 0)) * 100) / 100;
+    const bph = durHoras > 0.005 ? Math.round((totalB / durHoras) * 100) / 100 : 0.0;
+    const tph = durHoras > 0.005 ? Math.round((pesoRealTon / durHoras) * 100) / 100 : 0.0;
 
     const uniqueOPs = new Set(g.baches.map(b => b.OP).filter(Boolean)).size;
     const uniqueFormulas = new Set(g.baches.map(b => b.Nombre_Formula).filter(Boolean)).size;
@@ -1420,8 +1474,14 @@ function processConsolidatedAndRender(baches) {
     };
   });
 
-  // Ordenar cronológicamente
-  consolidatedRows.sort((a, b) => new Date(a.SortDate) - new Date(b.SortDate));
+  // Ordenar grupos
+  if (groupingMode >= 5) {
+    // Por Tarea y Fórmula: ordenar por mayor volumen de baches primero
+    consolidatedRows.sort((a, b) => b.Total_Baches - a.Total_Baches);
+  } else {
+    // Por Día, Semana, Mes, Turno: ordenar cronológicamente ASC
+    consolidatedRows.sort((a, b) => new Date(a.SortDate) - new Date(b.SortDate));
+  }
 
   // 1. Renderizar Gráfica Consolidada
   renderConsolidatedChart(consolidatedRows, chartMetric);
