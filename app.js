@@ -43,6 +43,8 @@ const AppState = {
   selectedTurno: 0, // 0: Todos, 1, 2, 3
   customDateFrom: null,
   customDateTo: null,
+  customTimeFrom: '00:00',
+  customTimeTo: '23:59',
   selectedFormula: '',
   searchTerm: '',
   filterOP: '',
@@ -112,8 +114,12 @@ function setupInitialDates() {
   const today = new Date().toISOString().split('T')[0];
   const dateFrom = document.getElementById('date-from');
   const dateTo = document.getElementById('date-to');
+  const timeFrom = document.getElementById('time-from');
+  const timeTo = document.getElementById('time-to');
   if (dateFrom) dateFrom.value = today;
   if (dateTo) dateTo.value = today;
+  if (timeFrom && !timeFrom.value) timeFrom.value = '00:00';
+  if (timeTo && !timeTo.value) timeTo.value = '23:59';
 }
 
 // =============================================================================
@@ -763,8 +769,18 @@ function applyFiltersAndRender(resetPagination = true) {
       filterStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
       filterEnd = now;
     } else if (AppState.currentPeriod === 'custom') {
-      filterStart = AppState.customDateFrom ? new Date(AppState.customDateFrom + 'T00:00:00') : null;
-      filterEnd = AppState.customDateTo ? new Date(AppState.customDateTo + 'T23:59:59') : null;
+      const parseLocalDateTime = (dateStr, timeStr, defaultSeconds = 0) => {
+        if (!dateStr) return null;
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const tParts = (timeStr || '00:00').split(':').map(Number);
+        const hh = tParts[0] || 0;
+        const mm = tParts[1] || 0;
+        const ss = tParts.length > 2 ? tParts[2] : defaultSeconds;
+        return new Date(y, m - 1, d, hh, mm, ss);
+      };
+
+      filterStart = parseLocalDateTime(AppState.customDateFrom, AppState.customTimeFrom, 0);
+      filterEnd = parseLocalDateTime(AppState.customDateTo, AppState.customTimeTo, 59);
     }
 
     let filtered = [...AppState.allBaches];
@@ -1736,7 +1752,17 @@ function initEventListeners() {
     AppState.currentPeriod = 'custom';
     AppState.customDateFrom = document.getElementById('date-from')?.value;
     AppState.customDateTo = document.getElementById('date-to')?.value;
+    AppState.customTimeFrom = document.getElementById('time-from')?.value || '00:00';
+    AppState.customTimeTo = document.getElementById('time-to')?.value || '23:59';
     applyFiltersAndRender();
+  });
+
+  ['date-from', 'time-from', 'date-to', 'time-to'].forEach(id => {
+    document.getElementById(id)?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        document.getElementById('btn-apply-dates')?.click();
+      }
+    });
   });
 
   // Selector de Ventana Móvil

@@ -513,9 +513,11 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
-.date-input {
+.date-input,
+.time-input {
   background: var(--bg-input);
   border: 1px solid var(--border-color);
   color: var(--text-main);
@@ -524,6 +526,16 @@ body {
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.time-input {
+  width: 86px;
+}
+
+.date-input:focus,
+.time-input:focus {
+  border-color: var(--primary);
 }
 
 .date-separator {
